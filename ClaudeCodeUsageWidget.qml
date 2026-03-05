@@ -31,7 +31,7 @@ PluginComponent {
     }
 
     // Settings
-    property int refreshInterval: (pluginData.refreshInterval || 60) * 1000
+    property int refreshInterval: (pluginData.refreshInterval || 2) * 60000
 
     // API usage data
     property string subscriptionType: ""
