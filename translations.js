@@ -40,6 +40,10 @@ var strings = {
         { fr: "Intervalle de rafraîchissement" },
     "How often to fetch usage data (seconds)":
         { fr: "Fréquence de mise à jour des données (secondes)" },
+    "All":
+        { fr: "Tout" },
+    "Profile":
+        { fr: "Profil" },
 }
 
 function tr(key, lang) {
