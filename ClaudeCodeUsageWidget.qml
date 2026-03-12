@@ -119,7 +119,7 @@ PluginComponent {
     property string scriptPath: PluginService.pluginDirectory + "/claudeCodeUsage/get-claude-usage"
 
     popoutWidth: 380
-    popoutHeight: 660
+    popoutHeight: 740
 
     // --- Helpers ---
 
@@ -479,6 +479,141 @@ PluginComponent {
 
     // --- Popout ---
 
+    // Profile selector components — declared at root scope for Loader access
+    Component {
+        id: profileTabsComponent
+        Row {
+            spacing: Theme.spacingXS
+
+            Repeater {
+                model: profileListModel
+                delegate: Rectangle {
+                    width: tabLabel.implicitWidth + Theme.spacingM * 2
+                    height: 32
+                    radius: 16
+                    color: root.selectedProfile === name
+                        ? Theme.primary
+                        : Theme.surfaceVariant
+
+                    Behavior on color {
+                        ColorAnimation { duration: 120 }
+                    }
+
+                    StyledText {
+                        id: tabLabel
+                        anchors.centerIn: parent
+                        text: name === "all" ? root.tr("All") : name
+                        font.pixelSize: Theme.fontSizeSmall
+                        font.weight: root.selectedProfile === name ? Font.Medium : Font.Normal
+                        color: root.selectedProfile === name
+                            ? Theme.primaryText
+                            : Theme.surfaceVariantText
+                    }
+
+                    MouseArea {
+                        anchors.fill: parent
+                        cursorShape: Qt.PointingHandCursor
+                        onClicked: root.selectedProfile = name
+                    }
+                }
+            }
+        }
+    }
+
+    Component {
+        id: profileDropdownComponent
+        Rectangle {
+            // Note: z:100 on popup is scoped to subtree; cards below may overlap when open.
+            // Acceptable for >5 profiles (rare case). Full modal overlay is out of scope.
+            width: parent ? parent.width : 0
+            height: 36
+            radius: 8
+            color: Theme.surfaceVariant
+
+            Row {
+                anchors.fill: parent
+                anchors.leftMargin: Theme.spacingM
+                anchors.rightMargin: Theme.spacingM
+                spacing: Theme.spacingXS
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.tr("Profile") + ":"
+                    font.pixelSize: Theme.fontSizeSmall
+                    color: Theme.surfaceVariantText
+                }
+
+                StyledText {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: root.selectedProfile === "all"
+                        ? root.tr("All")
+                        : root.selectedProfile
+                    font.pixelSize: Theme.fontSizeSmall
+                    font.weight: Font.Medium
+                    color: Theme.surfaceText
+                }
+            }
+
+            MouseArea {
+                anchors.fill: parent
+                cursorShape: Qt.PointingHandCursor
+                onClicked: profileDropdownPopup.visible = !profileDropdownPopup.visible
+            }
+
+            Rectangle {
+                id: profileDropdownPopup
+                visible: false
+                z: 100
+                anchors.top: parent.bottom
+                anchors.topMargin: 4
+                anchors.left: parent.left
+                width: parent.width
+                height: dropdownCol.implicitHeight + Theme.spacingS * 2
+                radius: 8
+                color: Theme.surfaceContainer
+
+                Column {
+                    id: dropdownCol
+                    anchors.fill: parent
+                    anchors.margins: Theme.spacingS
+                    spacing: 2
+
+                    Repeater {
+                        model: profileListModel
+                        delegate: Rectangle {
+                            width: parent.width
+                            height: 28
+                            radius: 4
+                            color: root.selectedProfile === name
+                                ? Theme.primary
+                                : "transparent"
+
+                            StyledText {
+                                anchors.verticalCenter: parent.verticalCenter
+                                anchors.left: parent.left
+                                anchors.leftMargin: Theme.spacingXS
+                                text: name === "all" ? root.tr("All") : name
+                                font.pixelSize: Theme.fontSizeSmall
+                                color: root.selectedProfile === name
+                                    ? Theme.primaryText
+                                    : Theme.surfaceText
+                            }
+
+                            MouseArea {
+                                anchors.fill: parent
+                                cursorShape: Qt.PointingHandCursor
+                                onClicked: {
+                                    root.selectedProfile = name
+                                    profileDropdownPopup.visible = false
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     popoutContent: Component {
         PopoutComponent {
             headerText: root.tr("Claude Code Usage")
@@ -489,6 +624,24 @@ PluginComponent {
                 width: parent.width - Theme.spacingM * 2
                 anchors.horizontalCenter: parent.horizontalCenter
                 spacing: Theme.spacingL
+
+                // --- Profile selector (tabs ≤5 entries, dropdown >5) ---
+                // Hidden when only default profile (no CCS instances)
+                Item {
+                    width: parent.width
+                    height: profileSelectorLoader.height
+                    visible: profileListModel.count > 1
+
+                    Loader {
+                        id: profileSelectorLoader
+                        width: parent.width
+                        // Explicit height binding — Loader defaults to 0 without this
+                        height: item ? item.implicitHeight : 0
+                        sourceComponent: profileListModel.count <= 5
+                            ? profileTabsComponent
+                            : profileDropdownComponent
+                    }
+                }
 
                 // --- 5h Rate Window card ---
                 StyledRect {
