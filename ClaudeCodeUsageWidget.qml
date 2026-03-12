@@ -229,11 +229,27 @@ PluginComponent {
     }
 
     function formatTier(tier) {
+        if (!tier || tier === "unknown") return ""
         if (tier.indexOf("max_20x") >= 0) return "Max 20x"
         if (tier.indexOf("max_5x") >= 0) return "Max 5x"
+        if (tier.indexOf("max") >= 0) return "Max"
         if (tier.indexOf("pro") >= 0) return "Pro"
         if (tier.indexOf("free") >= 0) return "Free"
-        return tier
+        if (tier.indexOf("team") >= 0) return "Team"
+        if (tier.indexOf("enterprise") >= 0) return "Enterprise"
+        return tier.replace(/_/g, " ").replace(/\b\w/g, function(c) { return c.toUpperCase() })
+    }
+
+    function formatSubscription(subType, tier) {
+        var tierLabel = formatTier(tier)
+        if (!subType || subType === "unknown") return tierLabel
+        // Normalize subscriptionType like "claude_pro" → "Pro", "claude_max" → "Max"
+        var subLabel = subType.replace(/^claude[_-]?/i, "")
+                              .replace(/_/g, " ")
+                              .replace(/\b\w/g, function(c) { return c.toUpperCase() })
+        // Prefer tier label if it adds info beyond subType
+        if (tierLabel && tierLabel !== subLabel) return subLabel + " · " + tierLabel
+        return subLabel || tierLabel
     }
 
     // Helper: parse "name:value,name:value,..." into profileData[name][field]
@@ -693,7 +709,10 @@ PluginComponent {
     popoutContent: Component {
         PopoutComponent {
             headerText: root.tr("Claude Code Usage")
-            detailsText: root.rateLimitTier ? root.tr("Subscription") + ": " + root.formatTier(root.rateLimitTier) : ""
+            detailsText: {
+                var label = root.formatSubscription(root.subscriptionType, root.rateLimitTier)
+                return label ? root.tr("Subscription") + ": " + label : ""
+            }
             showCloseButton: true
 
             Column {
@@ -1184,6 +1203,7 @@ PluginComponent {
                             spacing: Theme.spacingS
 
                             Repeater {
+                                id: modelRepeater
                                 model: {
                                     if (root.selectedProfile === "all") return modelListData
                                     var pd = root.profileData[root.selectedProfile]
@@ -1193,17 +1213,26 @@ PluginComponent {
                                     width: modelCol.width
                                     spacing: 3
 
+                                    // When model is a ListModel, role names are direct properties.
+                                    // When model is a JS array, values are accessed via modelData.
+                                    property string _modelName: modelListData === modelRepeater.model
+                                        ? modelName
+                                        : (modelData ? modelData.modelName : "")
+                                    property int _modelTokens: modelListData === modelRepeater.model
+                                        ? modelTokens
+                                        : (modelData ? (modelData.modelTokens || 0) : 0)
+
                                     Row {
                                         width: parent.width
                                         spacing: Theme.spacingXS
 
                                         StyledText {
-                                            text: root.shortModelName(modelName)
+                                            text: root.shortModelName(_modelName)
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.surfaceText
                                         }
                                         StyledText {
-                                            text: root.formatTokens(modelTokens)
+                                            text: root.formatTokens(_modelTokens)
                                             font.pixelSize: Theme.fontSizeSmall
                                             color: Theme.surfaceVariantText
                                         }
@@ -1217,7 +1246,7 @@ PluginComponent {
 
                                         Rectangle {
                                             width: root.displayWeekTokens > 0
-                                                ? parent.width * Math.min(modelTokens / root.displayWeekTokens, 1)
+                                                ? parent.width * Math.min(_modelTokens / root.displayWeekTokens, 1)
                                                 : 0
                                             height: parent.height
                                             radius: 2
@@ -1235,7 +1264,7 @@ PluginComponent {
                     width: parent.width
                     height: allTimeRow.implicitHeight + Theme.spacingM * 2
                     color: Theme.surfaceContainerHigh
-                    visible: root.alltimeSessions > 0 || root.alltimeMessages > 0
+                    visible: root.selectedProfile === "all" && (root.alltimeSessions > 0 || root.alltimeMessages > 0)
 
                     Row {
                         id: allTimeRow
