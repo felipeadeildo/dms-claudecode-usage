@@ -71,55 +71,31 @@ PluginComponent {
     ListModel { id: profileListModel }
     // First entry is always { name: "all" }; populated by PROFILES output field.
 
+    // currentPd is a single reactive snapshot of the selected profile's data object.
+    // Re-evaluated whenever selectedProfile or profileData changes.
+    // All display* properties derive from this — ensures consistent re-evaluation.
+    property var currentPd: {
+        void(selectedProfile); void(profileData)
+        if (selectedProfile === "all") return null
+        return profileData[selectedProfile] || null
+    }
+
     // Computed display values — switch between aggregate and per-profile data.
-    // When selectedProfile === "all" or profile has no data, fall back to aggregates.
-    property real displayFiveHourUtil: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return fiveHourUtil
-        return profileData[selectedProfile].fiveHourUtil || 0
-    }
-    property string displayFiveHourReset: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return fiveHourReset
-        return profileData[selectedProfile].fiveHourReset || ""
-    }
-    property real displaySevenDayUtil: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return sevenDayUtil
-        return profileData[selectedProfile].sevenDayUtil || 0
-    }
-    property string displaySevenDayReset: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return sevenDayReset
-        return profileData[selectedProfile].sevenDayReset || ""
-    }
-    property real displayWeekTokens: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return weekTokens
-        return profileData[selectedProfile].weekTokens || 0
-    }
-    property real displayMonthTokens: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return monthTokens
-        return profileData[selectedProfile].monthTokens || 0
-    }
-    property real displayTodayCost: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return todayCost
-        return profileData[selectedProfile].todayCost || 0
-    }
-    property real displayWeekCost: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return weekCost
-        return profileData[selectedProfile].weekCost || 0
-    }
-    property real displayMonthCost: {
-        if (selectedProfile === "all" || !profileData[selectedProfile]) return monthCost
-        return profileData[selectedProfile].monthCost || 0
-    }
-    property var displayDailyTokens: {
-        if (selectedProfile === "all" || !profileData[selectedProfile] || !profileData[selectedProfile].daily)
-            return dailyTokens
-        return profileData[selectedProfile].daily
-    }
+    property string displaySubscriptionType: currentPd && currentPd.subscriptionType ? currentPd.subscriptionType : subscriptionType
+    property string displayRateLimitTier:    currentPd && currentPd.rateLimitTier    ? currentPd.rateLimitTier    : rateLimitTier
+    property real   displayFiveHourUtil:     currentPd && currentPd.fiveHourUtil  !== undefined ? currentPd.fiveHourUtil  : fiveHourUtil
+    property string displayFiveHourReset:    currentPd && currentPd.fiveHourReset !== undefined ? currentPd.fiveHourReset : fiveHourReset
+    property real   displaySevenDayUtil:     currentPd && currentPd.sevenDayUtil  !== undefined ? currentPd.sevenDayUtil  : sevenDayUtil
+    property string displaySevenDayReset:    currentPd && currentPd.sevenDayReset !== undefined ? currentPd.sevenDayReset : sevenDayReset
+    property real   displayWeekTokens:       currentPd && currentPd.weekTokens    !== undefined ? currentPd.weekTokens    : weekTokens
+    property real   displayMonthTokens:      currentPd && currentPd.monthTokens   !== undefined ? currentPd.monthTokens   : monthTokens
+    property real   displayTodayCost:        currentPd && currentPd.todayCost     !== undefined ? currentPd.todayCost     : todayCost
+    property real   displayWeekCost:         currentPd && currentPd.weekCost      !== undefined ? currentPd.weekCost      : weekCost
+    property real   displayMonthCost:        currentPd && currentPd.monthCost     !== undefined ? currentPd.monthCost     : monthCost
+    property var    displayDailyTokens:      currentPd && currentPd.daily ? currentPd.daily : dailyTokens
+
     // Per-profile daily tokens for chart overlay. Empty array when "all" selected.
-    property var profileDailyTokens: {
-        if (selectedProfile === "all") return []
-        var pd = profileData[selectedProfile]
-        return (pd && pd.daily) ? pd.daily : []
-    }
+    property var profileDailyTokens: currentPd && currentPd.daily ? currentPd.daily : []
 
     // Note: displayDailyCosts is intentionally NOT defined.
     // The tooltip cost line always shows aggregate dailyCosts per spec.
@@ -369,6 +345,10 @@ PluginComponent {
             profileData = parseProfileSimple(val, "weekCost", true); break
         case "PROFILE_MONTH_COST":
             profileData = parseProfileSimple(val, "monthCost", true); break
+        case "PROFILE_SUBSCRIPTION":
+            profileData = parseProfileString(val, "subscriptionType"); break
+        case "PROFILE_TIER":
+            profileData = parseProfileString(val, "rateLimitTier"); break
         case "PROFILE_FIVE_HOUR_UTIL":
             profileData = parseProfileSimple(val, "fiveHourUtil", true); break
         case "PROFILE_SEVEN_DAY_UTIL":
@@ -377,6 +357,8 @@ PluginComponent {
             profileData = parseProfileString(val, "fiveHourReset"); break
         case "PROFILE_SEVEN_DAY_RESET":
             profileData = parseProfileString(val, "sevenDayReset"); break
+        case "PROFILE_EXTRA_USAGE":
+            profileData = parseProfileString(val, "extraUsageEnabled"); break
         case "PROFILE_DAILY": {
             var _pd1 = Object.assign({}, profileData)
             var blocks1 = val.split("|")
@@ -710,7 +692,7 @@ PluginComponent {
         PopoutComponent {
             headerText: root.tr("Claude Code Usage")
             detailsText: {
-                var label = root.formatSubscription(root.subscriptionType, root.rateLimitTier)
+                var label = root.formatSubscription(root.displaySubscriptionType, root.displayRateLimitTier)
                 return label ? root.tr("Subscription") + ": " + label : ""
             }
             showCloseButton: true
