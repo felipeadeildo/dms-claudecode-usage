@@ -63,7 +63,7 @@ PluginComponent {
 
     // Today's index in the calendar week (0=Monday, 6=Sunday)
     property int todayIndex: {
-        void(refreshEpoch)
+        void(countdownNow)
         var dow = new Date().getDay() // 0=Sunday, 6=Saturday
         return dow === 0 ? 6 : dow - 1
     }
@@ -102,7 +102,15 @@ PluginComponent {
         running: true
         repeat: true
         triggeredOnStart: true
-        onTriggered: root.countdownNow = Date.now()
+        onTriggered: {
+            var now = Date.now()
+            var elapsed = now - root.countdownNow
+            root.countdownNow = now
+            // Large gap (>2min) indicates wake from sleep — force immediate refresh
+            if (elapsed > 120000 && !usageProcess.running) {
+                usageProcess.running = true
+            }
+        }
     }
 
     // Script path via PluginService

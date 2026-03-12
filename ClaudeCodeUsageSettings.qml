@@ -34,7 +34,7 @@ PluginSettings {
         defaultValue: 2
         minimum: 2
         maximum: 15
-        stepSize: 1
+
         unit: "min"
         leftIcon: "schedule"
     }
