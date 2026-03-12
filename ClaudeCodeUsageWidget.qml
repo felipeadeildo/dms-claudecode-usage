@@ -114,6 +114,13 @@ PluginComponent {
             return dailyTokens
         return profileData[selectedProfile].daily
     }
+    // Per-profile daily tokens for chart overlay. Empty array when "all" selected.
+    property var profileDailyTokens: {
+        if (selectedProfile === "all") return []
+        var pd = profileData[selectedProfile]
+        return (pd && pd.daily) ? pd.daily : []
+    }
+
     // Note: displayDailyCosts is intentionally NOT defined.
     // The tooltip cost line always shows aggregate dailyCosts per spec.
     // The Token Consumption card uses displayTodayCost/displayWeekCost/displayMonthCost instead.
@@ -1016,7 +1023,9 @@ PluginComponent {
                                             width: parent.width
                                             height: parent.height - dayLabel.height - 2
 
+                                            // Background bar: total tokens (always shown)
                                             Rectangle {
+                                                id: totalBar
                                                 anchors.bottom: parent.bottom
                                                 anchors.horizontalCenter: parent.horizontalCenter
                                                 width: Math.max(parent.width - 4, 4)
@@ -1024,9 +1033,27 @@ PluginComponent {
                                                     ? Math.max(root.dailyTokens[index] / root.maxDaily * parent.height, root.dailyTokens[index] > 0 ? 3 : 0)
                                                     : 0
                                                 radius: 2
-                                                color: index === root.hoveredDay
-                                                    ? Theme.primary
-                                                    : index === root.todayIndex ? Theme.primary : Theme.surfaceVariant
+                                                color: root.selectedProfile === "all"
+                                                    ? (index === root.todayIndex ? Theme.primary : Theme.surfaceVariant)
+                                                    : Theme.surfaceVariant
+                                                opacity: root.hoveredDay >= 0 && index !== root.hoveredDay ? 0.4 : 1.0
+
+                                                Behavior on opacity {
+                                                    NumberAnimation { duration: 120 }
+                                                }
+                                            }
+
+                                            // Overlay bar: profile tokens (shown only when a profile is selected)
+                                            Rectangle {
+                                                visible: root.selectedProfile !== "all" && root.profileDailyTokens.length > 0
+                                                anchors.bottom: parent.bottom
+                                                anchors.horizontalCenter: parent.horizontalCenter
+                                                width: Math.max(parent.width - 4, 4)
+                                                height: root.maxDaily > 0 && root.profileDailyTokens.length > index
+                                                    ? Math.max(root.profileDailyTokens[index] / root.maxDaily * parent.height, root.profileDailyTokens[index] > 0 ? 3 : 0)
+                                                    : 0
+                                                radius: 2
+                                                color: Theme.primary
                                                 opacity: root.hoveredDay >= 0 && index !== root.hoveredDay ? 0.4 : 1.0
 
                                                 Behavior on opacity {
@@ -1086,14 +1113,35 @@ PluginComponent {
                             anchors.centerIn: parent
                             spacing: 1
 
+                            // Line 1: total tokens (with "total" suffix when a profile is selected)
                             StyledText {
-                                text: root.hoveredDay >= 0 ? root.formatTokens(root.dailyTokens[root.hoveredDay]) : ""
+                                text: {
+                                    if (root.hoveredDay < 0) return ""
+                                    var t = root.formatTokens(root.dailyTokens[root.hoveredDay])
+                                    return root.selectedProfile !== "all" ? t + " total" : t
+                                }
                                 font.pixelSize: 11
                                 font.weight: Font.DemiBold
                                 color: Theme.surfaceText
                                 anchors.horizontalCenter: parent.horizontalCenter
                             }
 
+                            // Line 2: profile tokens (only when a profile is selected and has data)
+                            StyledText {
+                                visible: root.selectedProfile !== "all"
+                                    && root.hoveredDay >= 0
+                                    && root.profileDailyTokens.length > root.hoveredDay
+                                    && root.profileDailyTokens[root.hoveredDay] > 0
+                                text: {
+                                    if (root.hoveredDay < 0 || root.profileDailyTokens.length <= root.hoveredDay) return ""
+                                    return root.formatTokens(root.profileDailyTokens[root.hoveredDay]) + " " + root.selectedProfile
+                                }
+                                font.pixelSize: 11
+                                color: Theme.primary
+                                anchors.horizontalCenter: parent.horizontalCenter
+                            }
+
+                            // Line 3: total cost (always shown when > 0, uses aggregate dailyCosts)
                             StyledText {
                                 visible: root.hoveredDay >= 0 && root.dailyCosts[root.hoveredDay] > 0
                                 text: root.hoveredDay >= 0 ? root.formatCost(root.dailyCosts[root.hoveredDay]) : ""
