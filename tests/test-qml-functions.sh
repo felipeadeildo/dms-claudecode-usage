@@ -3,8 +3,6 @@
 # Extracts pure JS functions from ClaudeCodeUsageWidget.qml and tests them via Node.js
 set -eu
 
-SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-
 # Check for Node.js
 if ! command -v node >/dev/null 2>&1; then
     echo "SKIP: Node.js not available, skipping QML function tests"
