@@ -61,6 +61,16 @@ PluginComponent {
     // Model list
     ListModel { id: modelListData }
 
+    // Profile selector state
+    property string selectedProfile: "all"
+    property var profileData: ({})
+    // Shape per profile: { weekTokens, monthTokens, todayCost, weekCost, monthCost,
+    //   daily:[7], dailyCosts:[7], weekModels:[{modelName,modelTokens}],
+    //   fiveHourUtil, sevenDayUtil, fiveHourReset, sevenDayReset }
+
+    ListModel { id: profileListModel }
+    // First entry is always { name: "all" }; populated by PROFILES output field.
+
     // Today's index in the calendar week (0=Monday, 6=Sunday)
     property int todayIndex: {
         void(refreshEpoch)
@@ -150,6 +160,45 @@ PluginComponent {
         return tier
     }
 
+    // Helper: parse "name:value,name:value,..." into profileData[name][field]
+    // For numeric fields. Full object replacement ensures QML reactivity.
+    function parseProfileSimple(val, field, isFloat) {
+        var _pd = Object.assign({}, profileData)
+        var entries = val.split(",")
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i]
+            var colon = entry.indexOf(":")
+            if (colon < 0) continue
+            var name = entry.substring(0, colon)
+            var v = isFloat
+                ? (parseFloat(entry.substring(colon + 1)) || 0)
+                : (parseInt(entry.substring(colon + 1)) || 0)
+            if (!_pd[name]) _pd[name] = {}
+            _pd[name][field] = v
+        }
+        return _pd
+    }
+
+    // Helper: parse "name:value,..." for string fields (e.g. reset timestamps).
+    // Uses indexOf(":") so ISO 8601 timestamps with colons are handled correctly —
+    // profile names never contain colons, so first colon is always the delimiter.
+    // An empty value after ":" (e.g. "personal:") is intentionally stored as "" —
+    // it is not an error, it means no reset time for that profile.
+    function parseProfileString(val, field) {
+        var _pd = Object.assign({}, profileData)
+        var entries = val.split(",")
+        for (var i = 0; i < entries.length; i++) {
+            var entry = entries[i]
+            var colon = entry.indexOf(":")
+            if (colon < 0) continue
+            var name = entry.substring(0, colon)
+            var v = entry.substring(colon + 1)
+            if (!_pd[name]) _pd[name] = {}
+            _pd[name][field] = v
+        }
+        return _pd
+    }
+
     function parseLine(line) {
         var idx = line.indexOf("=")
         if (idx < 0) return
@@ -174,11 +223,14 @@ PluginComponent {
         case "WEEK_MODELS":
             modelListData.clear()
             if (val.length > 0) {
-                var pairs = val.split(",")
-                for (var i = 0; i < pairs.length; i++) {
-                    var kv = pairs[i].split(":")
-                    if (kv.length === 2)
-                        modelListData.append({ modelName: kv[0], modelTokens: parseInt(kv[1]) || 0 })
+                var wmpairs = val.split(",")
+                for (var wmi = 0; wmi < wmpairs.length; wmi++) {
+                    var wmeq = wmpairs[wmi].indexOf("=")
+                    if (wmeq >= 0)
+                        modelListData.append({
+                            modelName:   wmpairs[wmi].substring(0, wmeq),
+                            modelTokens: parseInt(wmpairs[wmi].substring(wmeq + 1)) || 0
+                        })
                 }
             }
             break
@@ -200,6 +252,104 @@ PluginComponent {
                 carr.push(k < cparts.length ? (parseFloat(cparts[k]) || 0) : 0)
             dailyCosts = carr
             break
+        case "PROFILES": {
+            profileListModel.clear()
+            profileListModel.append({ name: "all" })
+            var profs = val.split(",")
+            for (var pi = 0; pi < profs.length; pi++)
+                profileListModel.append({ name: profs[pi] })
+            // Reset selectedProfile if it no longer exists in new profile list
+            if (selectedProfile !== "all") {
+                var found = false
+                for (var fi = 0; fi < profs.length; fi++)
+                    if (profs[fi] === selectedProfile) { found = true; break }
+                if (!found) selectedProfile = "all"
+            }
+            break
+        }
+        case "PROFILE_WEEK_TOKENS":
+            profileData = parseProfileSimple(val, "weekTokens", false); break
+        case "PROFILE_MONTH_TOKENS":
+            profileData = parseProfileSimple(val, "monthTokens", false); break
+        case "PROFILE_TODAY_COST":
+            profileData = parseProfileSimple(val, "todayCost", true); break
+        case "PROFILE_WEEK_COST":
+            profileData = parseProfileSimple(val, "weekCost", true); break
+        case "PROFILE_MONTH_COST":
+            profileData = parseProfileSimple(val, "monthCost", true); break
+        case "PROFILE_FIVE_HOUR_UTIL":
+            profileData = parseProfileSimple(val, "fiveHourUtil", true); break
+        case "PROFILE_SEVEN_DAY_UTIL":
+            profileData = parseProfileSimple(val, "sevenDayUtil", true); break
+        case "PROFILE_FIVE_HOUR_RESET":
+            profileData = parseProfileString(val, "fiveHourReset"); break
+        case "PROFILE_SEVEN_DAY_RESET":
+            profileData = parseProfileString(val, "sevenDayReset"); break
+        case "PROFILE_DAILY": {
+            var _pd1 = Object.assign({}, profileData)
+            var blocks1 = val.split("|")
+            for (var bi1 = 0; bi1 < blocks1.length; bi1++) {
+                var blk1 = blocks1[bi1]
+                var c1 = blk1.indexOf(":")
+                if (c1 < 0) continue
+                var pname1 = blk1.substring(0, c1)
+                var csv1 = blk1.substring(c1 + 1)
+                if (!_pd1[pname1]) _pd1[pname1] = {}
+                var parts1 = csv1.split(",")
+                var arr1 = []
+                for (var di = 0; di < 7; di++)
+                    arr1.push(di < parts1.length ? (parseFloat(parts1[di]) || 0) : 0)
+                _pd1[pname1].daily = arr1
+            }
+            profileData = _pd1
+            break
+        }
+        case "PROFILE_DAILY_COSTS": {
+            var _pd2 = Object.assign({}, profileData)
+            var blocks2 = val.split("|")
+            for (var bi2 = 0; bi2 < blocks2.length; bi2++) {
+                var blk2 = blocks2[bi2]
+                var c2 = blk2.indexOf(":")
+                if (c2 < 0) continue
+                var pname2 = blk2.substring(0, c2)
+                var csv2 = blk2.substring(c2 + 1)
+                if (!_pd2[pname2]) _pd2[pname2] = {}
+                var parts2 = csv2.split(",")
+                var arr2 = []
+                for (var dci = 0; dci < 7; dci++)
+                    arr2.push(dci < parts2.length ? (parseFloat(parts2[dci]) || 0) : 0)
+                _pd2[pname2].dailyCosts = arr2
+            }
+            profileData = _pd2
+            break
+        }
+        case "PROFILE_WEEK_MODELS": {
+            var _pd3 = Object.assign({}, profileData)
+            var blocks3 = val.split("|")
+            for (var bi3 = 0; bi3 < blocks3.length; bi3++) {
+                var blk3 = blocks3[bi3]
+                var c3 = blk3.indexOf(":")
+                if (c3 < 0) continue
+                var pname3 = blk3.substring(0, c3)
+                var mcsv = blk3.substring(c3 + 1)
+                if (!_pd3[pname3]) _pd3[pname3] = {}
+                var wms = []
+                if (mcsv.length > 0) {
+                    var mentries = mcsv.split(",")
+                    for (var mi = 0; mi < mentries.length; mi++) {
+                        var eq = mentries[mi].indexOf("=")
+                        if (eq < 0) continue
+                        wms.push({
+                            modelName:   mentries[mi].substring(0, eq),
+                            modelTokens: parseInt(mentries[mi].substring(eq + 1)) || 0
+                        })
+                    }
+                }
+                _pd3[pname3].weekModels = wms
+            }
+            profileData = _pd3
+            break
+        }
         }
     }
 
@@ -332,7 +482,7 @@ PluginComponent {
     popoutContent: Component {
         PopoutComponent {
             headerText: root.tr("Claude Code Usage")
-            detailsText: root.rateLimitTier ? root.tr("Subscription") + " : " + root.formatTier(root.rateLimitTier) : ""
+            detailsText: root.rateLimitTier ? root.tr("Subscription") + ": " + root.formatTier(root.rateLimitTier) : ""
             showCloseButton: true
 
             Column {
