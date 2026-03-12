@@ -702,11 +702,12 @@ PluginComponent {
                 spacing: Theme.spacingL
 
                 // --- Profile selector (tabs ≤5 entries, dropdown >5) ---
-                // Hidden when only default profile (no CCS instances)
+                // Hidden when only one real profile (e.g. default only, no CCS instances)
+                // count > 2 means "All" + at least 2 real profiles
                 Item {
                     width: parent.width
                     height: profileSelectorLoader.height
-                    visible: profileListModel.count > 1
+                    visible: profileListModel.count > 2
 
                     Loader {
                         id: profileSelectorLoader

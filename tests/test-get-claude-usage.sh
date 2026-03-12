@@ -104,7 +104,7 @@ WEEK_SESSIONS=$(echo "$OUTPUT2" | grep "^WEEK_SESSIONS=" | cut -d= -f2)
 assert_eq "$WEEK_SESSIONS" "2" "WEEK_SESSIONS=2"
 
 # WEEK_MODELS should contain opus and sonnet
-WEEK_MODELS=$(echo "$OUTPUT2" | grep "^WEEK_MODELS=" | cut -d= -f2)
+WEEK_MODELS=$(echo "$OUTPUT2" | grep "^WEEK_MODELS=" | cut -d= -f2-)
 assert_match "$WEEK_MODELS" "opus" "WEEK_MODELS contains opus"
 assert_match "$WEEK_MODELS" "sonnet" "WEEK_MODELS contains sonnet"
 
@@ -227,6 +227,120 @@ PVEOF
 OUTPUT7=$(run_script "$ENV7")
 TODAY_COST7=$(echo "$OUTPUT7" | grep "^TODAY_COST=" | cut -d= -f2)
 assert_eq "$TODAY_COST7" "0.00" "Cost=0 when model family not in pricing cache"
+
+# ============================================================
+echo "=== Test 8: PROFILES field — default profile always present ==="
+# ============================================================
+ENV8=$(setup_env "test8")
+OUTPUT8=$(run_script "$ENV8")
+
+if echo "$OUTPUT8" | grep -q "^PROFILES="; then
+    pass "PROFILES key present"
+else
+    fail "PROFILES key missing"
+fi
+
+PROFILES8=$(echo "$OUTPUT8" | grep "^PROFILES=" | cut -d= -f2)
+assert_match "$PROFILES8" "default" "PROFILES contains default"
+
+# ============================================================
+echo "=== Test 9: PROFILES discovers CCS instances ==="
+# ============================================================
+ENV9=$(setup_env "test9")
+mkdir -p "$ENV9/.ccs/instances/work/projects/proj1"
+mkdir -p "$ENV9/.ccs/instances/home/projects/proj2"
+
+make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 500 300 0 0 "sess-r" \
+    > "$ENV9/.ccs/instances/work/projects/proj1/test.jsonl"
+
+OUTPUT9=$(run_script "$ENV9")
+
+PROFILES9=$(echo "$OUTPUT9" | grep "^PROFILES=" | cut -d= -f2)
+assert_match "$PROFILES9" "default" "PROFILES contains default (test9)"
+assert_match "$PROFILES9" "work" "PROFILES contains work"
+assert_match "$PROFILES9" "home" "PROFILES contains home"
+
+# ============================================================
+echo "=== Test 10: PROFILE_WEEK_TOKENS format and values ==="
+# ============================================================
+ENV10=$(setup_env "test10")
+mkdir -p "$ENV10/.ccs/instances/work/projects/proj1"
+
+# default: 630 tokens (100+200+50+30+150+100)
+make_jsonl_line "$TODAY" "claude-opus-4-20250514" 100 200 50 30 "sess-a" \
+    > "$ENV10/.claude/projects/test-project/t.jsonl"
+make_jsonl_line "$TODAY" "claude-opus-4-20250514" 150 100 0 0 "sess-a" \
+    >> "$ENV10/.claude/projects/test-project/t.jsonl"
+
+# work: 800 tokens (500+300)
+make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 500 300 0 0 "sess-r" \
+    > "$ENV10/.ccs/instances/work/projects/proj1/t.jsonl"
+
+OUTPUT10=$(run_script "$ENV10")
+
+PWT=$(echo "$OUTPUT10" | grep "^PROFILE_WEEK_TOKENS=" | cut -d= -f2)
+if [ -n "$PWT" ]; then
+    pass "PROFILE_WEEK_TOKENS present"
+else
+    fail "PROFILE_WEEK_TOKENS missing"
+fi
+assert_match "$PWT" "default:[0-9]+" "PROFILE_WEEK_TOKENS has default:N"
+assert_match "$PWT" "work:800" "PROFILE_WEEK_TOKENS work:800"
+
+# Aggregate WEEK_TOKENS must equal sum: 630+800=1430
+AGG10=$(echo "$OUTPUT10" | grep "^WEEK_TOKENS=" | cut -d= -f2)
+assert_eq "$AGG10" "1430" "WEEK_TOKENS aggregate = 1430"
+
+# ============================================================
+echo "=== Test 11: PROFILE_DAILY pipe-separated, 7 values per profile ==="
+# ============================================================
+ENV11=$(setup_env "test11")
+mkdir -p "$ENV11/.ccs/instances/work/projects/proj1"
+
+make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 100 50 0 0 "s1" \
+    > "$ENV11/.ccs/instances/work/projects/proj1/t.jsonl"
+
+OUTPUT11=$(run_script "$ENV11")
+
+PD=$(echo "$OUTPUT11" | grep "^PROFILE_DAILY=" | cut -d= -f2)
+if [ -n "$PD" ]; then
+    pass "PROFILE_DAILY present"
+else
+    fail "PROFILE_DAILY missing"
+fi
+
+# Verify pipe separator exists (at least 2 profiles = 1 pipe)
+assert_match "$PD" "[|]" "PROFILE_DAILY has pipe separator"
+
+# Each block should have 7 comma-separated values
+# Check work block: split on | then check count of commas in work part
+WORK_BLOCK=$(echo "$PD" | tr '|' '\n' | grep "^work:")
+WORK_VALS=$(echo "$WORK_BLOCK" | cut -d: -f2)
+COMMA_COUNT=$(echo "$WORK_VALS" | tr -cd ',' | wc -c)
+assert_eq "$COMMA_COUNT" "6" "PROFILE_DAILY work block has 7 values (6 commas)"
+
+# ============================================================
+echo "=== Test 12: PROFILE_WEEK_MODELS uses = not : for model/count ==="
+# ============================================================
+ENV12=$(setup_env "test12")
+mkdir -p "$ENV12/.ccs/instances/work/projects/proj1"
+
+make_jsonl_line "$TODAY" "claude-opus-4-20250514" 100 50 0 0 "s1" \
+    > "$ENV12/.ccs/instances/work/projects/proj1/t.jsonl"
+
+OUTPUT12=$(run_script "$ENV12")
+
+PWM=$(echo "$OUTPUT12" | grep "^PROFILE_WEEK_MODELS=" | cut -d= -f2-)
+if [ -n "$PWM" ]; then
+    pass "PROFILE_WEEK_MODELS present"
+else
+    fail "PROFILE_WEEK_MODELS missing"
+fi
+assert_match "$PWM" "opus=[0-9]+" "PROFILE_WEEK_MODELS uses = separator for model/count"
+
+# Also verify the aggregate WEEK_MODELS field uses = (not :)
+AGG_WM12=$(echo "$OUTPUT12" | sed -n 's/^WEEK_MODELS=//p')
+assert_match "$AGG_WM12" "opus=[0-9]+" "aggregate WEEK_MODELS also uses = separator"
 
 # ============================================================
 echo ""
