@@ -71,6 +71,75 @@ PluginComponent {
     ListModel { id: profileListModel }
     // First entry is always { name: "all" }; populated by PROFILES output field.
 
+    // Computed display values — switch between aggregate and per-profile data.
+    // When selectedProfile === "all" or profile has no data, fall back to aggregates.
+    property real displayFiveHourUtil: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return fiveHourUtil
+        return profileData[selectedProfile].fiveHourUtil || 0
+    }
+    property string displayFiveHourReset: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return fiveHourReset
+        return profileData[selectedProfile].fiveHourReset || ""
+    }
+    property real displaySevenDayUtil: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return sevenDayUtil
+        return profileData[selectedProfile].sevenDayUtil || 0
+    }
+    property string displaySevenDayReset: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return sevenDayReset
+        return profileData[selectedProfile].sevenDayReset || ""
+    }
+    property real displayWeekTokens: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return weekTokens
+        return profileData[selectedProfile].weekTokens || 0
+    }
+    property real displayMonthTokens: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return monthTokens
+        return profileData[selectedProfile].monthTokens || 0
+    }
+    property real displayTodayCost: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return todayCost
+        return profileData[selectedProfile].todayCost || 0
+    }
+    property real displayWeekCost: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return weekCost
+        return profileData[selectedProfile].weekCost || 0
+    }
+    property real displayMonthCost: {
+        if (selectedProfile === "all" || !profileData[selectedProfile]) return monthCost
+        return profileData[selectedProfile].monthCost || 0
+    }
+    property var displayDailyTokens: {
+        if (selectedProfile === "all" || !profileData[selectedProfile] || !profileData[selectedProfile].daily)
+            return dailyTokens
+        return profileData[selectedProfile].daily
+    }
+    // Note: displayDailyCosts is intentionally NOT defined.
+    // The tooltip cost line always shows aggregate dailyCosts per spec.
+    // The Token Consumption card uses displayTodayCost/displayWeekCost/displayMonthCost instead.
+
+    property string displayFiveHourCountdown: {
+        if (!displayFiveHourReset) return ""
+        var resetMs = new Date(displayFiveHourReset).getTime()
+        var remaining = Math.max(0, resetMs - countdownNow)
+        if (remaining <= 0) return tr("Resetting...")
+        var hours = Math.floor(remaining / 3600000)
+        var mins = Math.floor((remaining % 3600000) / 60000)
+        return hours + "h " + (mins < 10 ? "0" : "") + mins + "m"
+    }
+
+    property string displaySevenDayCountdown: {
+        if (!displaySevenDayReset) return ""
+        var resetMs = new Date(displaySevenDayReset).getTime()
+        var remaining = Math.max(0, resetMs - countdownNow)
+        if (remaining <= 0) return tr("Resetting...")
+        var days = Math.floor(remaining / 86400000)
+        var hours = Math.floor((remaining % 86400000) / 3600000)
+        var mins = Math.floor((remaining % 3600000) / 60000)
+        if (days > 0) return days + "d " + hours + "h " + (mins < 10 ? "0" : "") + mins + "m"
+        return hours + "h " + (mins < 10 ? "0" : "") + mins + "m"
+    }
+
     // Today's index in the calendar week (0=Monday, 6=Sunday)
     property int todayIndex: {
         void(refreshEpoch)
@@ -662,7 +731,7 @@ PluginComponent {
                             anchors.verticalCenter: parent.verticalCenter
                             renderStrategy: Canvas.Cooperative
 
-                            property real percent: root.fiveHourUtil
+                            property real percent: root.displayFiveHourUtil
                             onPercentChanged: requestPaint()
 
                             onPaint: {
@@ -689,7 +758,7 @@ PluginComponent {
 
                             StyledText {
                                 anchors.centerIn: parent
-                                text: Math.round(root.fiveHourUtil) + "%"
+                                text: Math.round(root.displayFiveHourUtil) + "%"
                                 font.pixelSize: Theme.fontSizeXLarge
                                 font.weight: Font.DemiBold
                                 color: Theme.surfaceText
@@ -707,15 +776,15 @@ PluginComponent {
                                 color: Theme.surfaceText
                             }
                             StyledText {
-                                text: Math.round(root.fiveHourUtil) + "% " + root.tr("used")
+                                text: Math.round(root.displayFiveHourUtil) + "% " + root.tr("used")
                                 font.pixelSize: Theme.fontSizeMedium
-                                color: root.progressColor(root.fiveHourUtil)
+                                color: root.progressColor(root.displayFiveHourUtil)
                             }
                             StyledText {
-                                text: root.fiveHourCountdown ? root.tr("Resets in") + " " + root.fiveHourCountdown : ""
+                                text: root.displayFiveHourCountdown ? root.tr("Resets in") + " " + root.displayFiveHourCountdown : ""
                                 font.pixelSize: Theme.fontSizeMedium
                                 color: Theme.surfaceVariantText
-                                visible: root.fiveHourCountdown !== ""
+                                visible: root.displayFiveHourCountdown !== ""
                             }
                         }
                     }
@@ -740,7 +809,7 @@ PluginComponent {
                             anchors.verticalCenter: parent.verticalCenter
                             renderStrategy: Canvas.Cooperative
 
-                            property real percent: root.sevenDayUtil
+                            property real percent: root.displaySevenDayUtil
                             onPercentChanged: requestPaint()
 
                             onPaint: {
@@ -767,7 +836,7 @@ PluginComponent {
 
                             StyledText {
                                 anchors.centerIn: parent
-                                text: Math.round(root.sevenDayUtil) + "%"
+                                text: Math.round(root.displaySevenDayUtil) + "%"
                                 font.pixelSize: 14
                                 font.weight: Font.DemiBold
                                 color: Theme.surfaceText
@@ -779,7 +848,7 @@ PluginComponent {
                             spacing: Theme.spacingXS
 
                             StyledText {
-                                text: root.tr("7-Day Usage") + " · " + Math.round(root.sevenDayUtil) + "%"
+                                text: root.tr("7-Day Usage") + " · " + Math.round(root.displaySevenDayUtil) + "%"
                                 font.pixelSize: Theme.fontSizeMedium
                                 font.weight: Font.Medium
                                 color: Theme.surfaceText
@@ -793,12 +862,13 @@ PluginComponent {
                                 }
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
+                                visible: root.selectedProfile === "all"
                             }
                             StyledText {
-                                text: root.sevenDayCountdown ? root.tr("Resets in") + " " + root.sevenDayCountdown : ""
+                                text: root.displaySevenDayCountdown ? root.tr("Resets in") + " " + root.displaySevenDayCountdown : ""
                                 font.pixelSize: Theme.fontSizeSmall
                                 color: Theme.surfaceVariantText
-                                visible: root.sevenDayCountdown !== ""
+                                visible: root.displaySevenDayCountdown !== ""
                             }
                         }
                     }
@@ -837,18 +907,18 @@ PluginComponent {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                 }
                                 StyledText {
-                                    text: root.formatTokens(root.dailyTokens[root.todayIndex])
+                                    text: root.formatTokens(root.displayDailyTokens[root.todayIndex])
                                     font.pixelSize: Theme.fontSizeLarge
                                     font.weight: Font.DemiBold
                                     color: Theme.primary
                                     anchors.horizontalCenter: parent.horizontalCenter
                                 }
                                 StyledText {
-                                    text: root.formatCost(root.todayCost)
+                                    text: root.formatCost(root.displayTodayCost)
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    visible: root.todayCost > 0
+                                    visible: root.displayTodayCost > 0
                                 }
                             }
 
@@ -863,18 +933,18 @@ PluginComponent {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                 }
                                 StyledText {
-                                    text: root.formatTokens(root.weekTokens)
+                                    text: root.formatTokens(root.displayWeekTokens)
                                     font.pixelSize: Theme.fontSizeLarge
                                     font.weight: Font.DemiBold
                                     color: Theme.surfaceText
                                     anchors.horizontalCenter: parent.horizontalCenter
                                 }
                                 StyledText {
-                                    text: root.formatCost(root.weekCost)
+                                    text: root.formatCost(root.displayWeekCost)
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    visible: root.weekCost > 0
+                                    visible: root.displayWeekCost > 0
                                 }
                             }
 
@@ -889,18 +959,18 @@ PluginComponent {
                                     anchors.horizontalCenter: parent.horizontalCenter
                                 }
                                 StyledText {
-                                    text: root.formatTokens(root.monthTokens)
+                                    text: root.formatTokens(root.displayMonthTokens)
                                     font.pixelSize: Theme.fontSizeLarge
                                     font.weight: Font.DemiBold
                                     color: Theme.surfaceText
                                     anchors.horizontalCenter: parent.horizontalCenter
                                 }
                                 StyledText {
-                                    text: root.formatCost(root.monthCost)
+                                    text: root.formatCost(root.displayMonthCost)
                                     font.pixelSize: Theme.fontSizeSmall
                                     color: Theme.surfaceVariantText
                                     anchors.horizontalCenter: parent.horizontalCenter
-                                    visible: root.monthCost > 0
+                                    visible: root.displayMonthCost > 0
                                 }
                             }
                         }
@@ -1040,7 +1110,11 @@ PluginComponent {
                     width: parent.width
                     height: modelCardCol.implicitHeight + Theme.spacingM * 2
                     color: Theme.surfaceContainerHigh
-                    visible: modelListData.count > 0
+                    visible: {
+                        if (root.selectedProfile === "all") return modelListData.count > 0
+                        var pd = root.profileData[root.selectedProfile]
+                        return pd && pd.weekModels && pd.weekModels.length > 0
+                    }
 
                     Column {
                         id: modelCardCol
@@ -1061,7 +1135,11 @@ PluginComponent {
                             spacing: Theme.spacingS
 
                             Repeater {
-                                model: modelListData
+                                model: {
+                                    if (root.selectedProfile === "all") return modelListData
+                                    var pd = root.profileData[root.selectedProfile]
+                                    return (pd && pd.weekModels) ? pd.weekModels : []
+                                }
                                 delegate: Column {
                                     width: modelCol.width
                                     spacing: 3
@@ -1089,8 +1167,8 @@ PluginComponent {
                                         color: Theme.surfaceVariant
 
                                         Rectangle {
-                                            width: root.weekTokens > 0
-                                                ? parent.width * Math.min(modelTokens / root.weekTokens, 1)
+                                            width: root.displayWeekTokens > 0
+                                                ? parent.width * Math.min(modelTokens / root.displayWeekTokens, 1)
                                                 : 0
                                             height: parent.height
                                             radius: 2
