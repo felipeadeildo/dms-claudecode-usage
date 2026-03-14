@@ -343,6 +343,279 @@ AGG_WM12=$(echo "$OUTPUT12" | sed -n 's/^WEEK_MODELS=//p')
 assert_match "$AGG_WM12" "opus=[0-9]+" "aggregate WEEK_MODELS also uses = separator"
 
 # ============================================================
+echo "=== Test 13: Week boundary — previous week data excluded from WEEK_TOKENS ==="
+# ============================================================
+ENV13=$(setup_env "test13")
+
+# Compute last Sunday (always before current week which starts Monday)
+LAST_SUNDAY=$(date -d "last Sunday" +%Y-%m-%d)
+# If today IS Sunday, "last Sunday" is today; go back 7 more days
+if [ "$(date +%u)" -eq 7 ]; then
+    LAST_SUNDAY=$(date -d "7 days ago" +%Y-%m-%d)
+fi
+
+{
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 100 100 0 0 "sess-w1"
+    make_jsonl_line "$LAST_SUNDAY" "claude-sonnet-4-20250514" 500 500 0 0 "sess-w2"
+} > "$ENV13/.claude/projects/test-project/test.jsonl"
+
+OUTPUT13=$(run_script "$ENV13")
+WEEK_TOKENS13=$(echo "$OUTPUT13" | grep "^WEEK_TOKENS=" | cut -d= -f2)
+assert_eq "$WEEK_TOKENS13" "200" "Previous week data excluded from WEEK_TOKENS"
+
+# Previous week data should still count toward MONTH_TOKENS if same month
+MONTH_TOKENS13=$(echo "$OUTPUT13" | grep "^MONTH_TOKENS=" | cut -d= -f2)
+LAST_SUNDAY_MONTH=$(date -d "$LAST_SUNDAY" +%Y-%m)
+CURRENT_MONTH=$(date +%Y-%m)
+if [ "$LAST_SUNDAY_MONTH" = "$CURRENT_MONTH" ]; then
+    assert_eq "$MONTH_TOKENS13" "1200" "Previous week same-month data included in MONTH_TOKENS"
+else
+    assert_eq "$MONTH_TOKENS13" "200" "Previous month data excluded from MONTH_TOKENS"
+fi
+
+# ============================================================
+echo "=== Test 14: Month boundary — previous month data excluded ==="
+# ============================================================
+ENV14=$(setup_env "test14")
+
+# Use a date from the previous month
+PREV_MONTH_DATE=$(date -d "$(date +%Y-%m-01) - 1 day" +%Y-%m-%d)
+
+{
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 100 100 0 0 "sess-m1"
+    make_jsonl_line "$PREV_MONTH_DATE" "claude-sonnet-4-20250514" 400 400 0 0 "sess-m2"
+} > "$ENV14/.claude/projects/test-project/test.jsonl"
+
+OUTPUT14=$(run_script "$ENV14")
+MONTH_TOKENS14=$(echo "$OUTPUT14" | grep "^MONTH_TOKENS=" | cut -d= -f2)
+assert_eq "$MONTH_TOKENS14" "200" "Previous month data excluded from MONTH_TOKENS"
+
+# ============================================================
+echo "=== Test 15: Malformed JSONL lines are skipped ==="
+# ============================================================
+ENV15=$(setup_env "test15")
+
+{
+    echo "this is not json"
+    echo ""
+    echo '{"truncated": true'
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 100 100 0 0 "sess-mf"
+    echo '{"type":"assistant","timestamp":"invalid"}'
+} > "$ENV15/.claude/projects/test-project/test.jsonl"
+
+OUTPUT15=$(run_script "$ENV15")
+WEEK_TOKENS15=$(echo "$OUTPUT15" | grep "^WEEK_TOKENS=" | cut -d= -f2)
+assert_eq "$WEEK_TOKENS15" "200" "Malformed lines skipped, valid line counted"
+
+# ============================================================
+echo "=== Test 16: Non-assistant types excluded ==="
+# ============================================================
+ENV16=$(setup_env "test16")
+
+{
+    # User message — should be ignored
+    printf '{"type":"user","timestamp":"%sT12:00:00Z","sessionId":"sess-u","message":{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":999,"output_tokens":999,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$TODAY"
+    # Tool message — should be ignored
+    printf '{"type":"tool","timestamp":"%sT12:00:00Z","sessionId":"sess-t","message":{"model":"claude-sonnet-4-20250514","usage":{"input_tokens":888,"output_tokens":888,"cache_read_input_tokens":0,"cache_creation_input_tokens":0}}}\n' "$TODAY"
+    # Valid assistant message
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 50 50 0 0 "sess-a"
+} > "$ENV16/.claude/projects/test-project/test.jsonl"
+
+OUTPUT16=$(run_script "$ENV16")
+WEEK_TOKENS16=$(echo "$OUTPUT16" | grep "^WEEK_TOKENS=" | cut -d= -f2)
+assert_eq "$WEEK_TOKENS16" "100" "Only assistant messages counted"
+WEEK_MESSAGES16=$(echo "$OUTPUT16" | grep "^WEEK_MESSAGES=" | cut -d= -f2)
+assert_eq "$WEEK_MESSAGES16" "1" "Non-assistant messages excluded from count"
+
+# ============================================================
+echo "=== Test 17: Multiple projects aggregated ==="
+# ============================================================
+ENV17=$(setup_env "test17")
+mkdir -p "$ENV17/.claude/projects/project-a"
+mkdir -p "$ENV17/.claude/projects/project-b"
+
+{
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 100 100 0 0 "sess-pa"
+} > "$ENV17/.claude/projects/project-a/log.jsonl"
+{
+    make_jsonl_line "$TODAY" "claude-opus-4-20250514" 200 200 0 0 "sess-pb"
+} > "$ENV17/.claude/projects/project-b/log.jsonl"
+
+OUTPUT17=$(run_script "$ENV17")
+WEEK_TOKENS17=$(echo "$OUTPUT17" | grep "^WEEK_TOKENS=" | cut -d= -f2)
+assert_eq "$WEEK_TOKENS17" "600" "Tokens from multiple projects aggregated"
+WEEK_SESSIONS17=$(echo "$OUTPUT17" | grep "^WEEK_SESSIONS=" | cut -d= -f2)
+assert_eq "$WEEK_SESSIONS17" "2" "Sessions from multiple projects counted"
+
+# ============================================================
+echo "=== Test 18: Usage API cache — fresh cache used ==="
+# ============================================================
+ENV18=$(setup_env "test18")
+
+# Create credentials so the API path is entered
+cat > "$ENV18/.claude/.credentials.json" << 'CREDEOF'
+{
+    "claudeAiOauth": {
+        "subscriptionType": "pro",
+        "rateLimitTier": "t1_pro",
+        "accessToken": "fake-token"
+    }
+}
+CREDEOF
+
+# Create fresh usage cache (cached_at = now)
+NOW_TS=$(date +%s)
+cat > "$ENV18/.claude/usage-cache.json" << CACHEEOF
+{
+    "cached_at": $NOW_TS,
+    "data": {
+        "five_hour": {"utilization": 42, "resets_at": "2099-01-01T00:00:00Z"},
+        "seven_day": {"utilization": 15, "resets_at": "2099-01-07T00:00:00Z"},
+        "extra_usage": {"is_enabled": true}
+    }
+}
+CACHEEOF
+
+OUTPUT18=$(run_script "$ENV18")
+FIVE18=$(echo "$OUTPUT18" | grep "^FIVE_HOUR_UTIL=" | cut -d= -f2)
+assert_eq "$FIVE18" "42" "Fresh cache: FIVE_HOUR_UTIL from cache"
+SEVEN18=$(echo "$OUTPUT18" | grep "^SEVEN_DAY_UTIL=" | cut -d= -f2)
+assert_eq "$SEVEN18" "15" "Fresh cache: SEVEN_DAY_UTIL from cache"
+EXTRA18=$(echo "$OUTPUT18" | grep "^EXTRA_USAGE_ENABLED=" | cut -d= -f2)
+assert_eq "$EXTRA18" "true" "Fresh cache: EXTRA_USAGE_ENABLED from cache"
+
+# ============================================================
+echo "=== Test 19: Stats cache parsing ==="
+# ============================================================
+ENV19=$(setup_env "test19")
+
+cat > "$ENV19/.claude/stats-cache.json" << 'STATSEOF'
+{
+    "totalSessions": 150,
+    "totalMessages": 4200,
+    "firstSessionDate": "2024-06-15T10:30:00Z"
+}
+STATSEOF
+
+OUTPUT19=$(run_script "$ENV19")
+AT_SESS19=$(echo "$OUTPUT19" | grep "^ALLTIME_SESSIONS=" | cut -d= -f2)
+assert_eq "$AT_SESS19" "150" "Stats cache: ALLTIME_SESSIONS"
+AT_MSGS19=$(echo "$OUTPUT19" | grep "^ALLTIME_MESSAGES=" | cut -d= -f2)
+assert_eq "$AT_MSGS19" "4200" "Stats cache: ALLTIME_MESSAGES"
+FIRST19=$(echo "$OUTPUT19" | grep "^FIRST_SESSION=" | cut -d= -f2)
+assert_eq "$FIRST19" "2024-06-15" "Stats cache: ISO timestamp T-suffix stripped"
+
+# ============================================================
+echo "=== Test 20: Cost with multiple model families ==="
+# ============================================================
+ENV20=$(setup_env "test20")
+
+cat > "$ENV20/.claude/pricing-cache.json" << MPEOF
+{
+    "updated": "$(date +%Y-%m-%d)",
+    "models": {
+        "opus": {"input": 0.000015, "output": 0.000075, "cache_read": 0, "cache_write": 0},
+        "sonnet": {"input": 0.000003, "output": 0.000015, "cache_read": 0, "cache_write": 0}
+    }
+}
+MPEOF
+
+{
+    make_jsonl_line "$TODAY" "claude-opus-4-20250514" 1000 1000 0 0 "sess-mp1"
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 1000 1000 0 0 "sess-mp2"
+} > "$ENV20/.claude/projects/test-project/test.jsonl"
+
+OUTPUT20=$(run_script "$ENV20")
+# opus: 1000*0.000015 + 1000*0.000075 = 0.015 + 0.075 = 0.09
+# sonnet: 1000*0.000003 + 1000*0.000015 = 0.003 + 0.015 = 0.018
+# total: 0.108
+TODAY_COST20=$(echo "$OUTPUT20" | grep "^TODAY_COST=" | cut -d= -f2)
+assert_eq "$TODAY_COST20" "0.11" "Multi-model cost summed correctly"
+
+# ============================================================
+echo "=== Test 21: Pricing cache without EUR rate — USD_EUR_RATE=0 ==="
+# ============================================================
+ENV21=$(setup_env "test21")
+
+cat > "$ENV21/.claude/pricing-cache.json" << 'NOEUREOF'
+{
+    "updated": "2099-12-31",
+    "models": {
+        "sonnet": {"input": 0.000003, "output": 0.000015, "cache_read": 0, "cache_write": 0}
+    }
+}
+NOEUREOF
+
+OUTPUT21=$(run_script "$ENV21")
+EUR21=$(echo "$OUTPUT21" | grep "^USD_EUR_RATE=" | cut -d= -f2)
+assert_eq "$EUR21" "0" "Missing usd_eur_rate defaults to 0"
+
+# ============================================================
+echo "=== Test 22: Session deduplication — same session counted once ==="
+# ============================================================
+ENV22=$(setup_env "test22")
+
+{
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 10 10 0 0 "same-sess"
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 20 20 0 0 "same-sess"
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 30 30 0 0 "same-sess"
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 40 40 0 0 "other-sess"
+} > "$ENV22/.claude/projects/test-project/test.jsonl"
+
+OUTPUT22=$(run_script "$ENV22")
+WEEK_SESSIONS22=$(echo "$OUTPUT22" | grep "^WEEK_SESSIONS=" | cut -d= -f2)
+assert_eq "$WEEK_SESSIONS22" "2" "Same sessionId counted as 1 session"
+WEEK_MESSAGES22=$(echo "$OUTPUT22" | grep "^WEEK_MESSAGES=" | cut -d= -f2)
+assert_eq "$WEEK_MESSAGES22" "4" "All messages counted regardless of session"
+
+# ============================================================
+echo "=== Test 23: DAILY_COSTS aligns with DAILY indices ==="
+# ============================================================
+ENV23=$(setup_env "test23")
+
+cat > "$ENV23/.claude/pricing-cache.json" << DCEOF
+{
+    "updated": "$(date +%Y-%m-%d)",
+    "models": {
+        "sonnet": {"input": 0.000003, "output": 0.000015, "cache_read": 0, "cache_write": 0}
+    }
+}
+DCEOF
+
+{
+    make_jsonl_line "$TODAY" "claude-sonnet-4-20250514" 1000 1000 0 0 "sess-dc"
+} > "$ENV23/.claude/projects/test-project/test.jsonl"
+
+OUTPUT23=$(run_script "$ENV23")
+DAILY23=$(echo "$OUTPUT23" | grep "^DAILY=" | cut -d= -f2)
+DAILY_COSTS23=$(echo "$OUTPUT23" | grep "^DAILY_COSTS=" | cut -d= -f2)
+
+# Today's index in calendar week
+TODAY_IDX23=$((DOW - 1))
+
+# Verify tokens and costs are at the same index
+DAILY_TOK=$(echo "$DAILY23" | tr ',' '\n' | sed -n "$((TODAY_IDX23 + 1))p")
+DAILY_CST=$(echo "$DAILY_COSTS23" | tr ',' '\n' | sed -n "$((TODAY_IDX23 + 1))p")
+assert_eq "$DAILY_TOK" "2000" "DAILY tokens at today's index"
+if [ "$DAILY_CST" != "0" ] && [ "$DAILY_CST" != "0.00" ]; then
+    pass "DAILY_COSTS at today's index is non-zero"
+else
+    fail "DAILY_COSTS at today's index should be non-zero (got '$DAILY_CST')"
+fi
+
+# Verify all other indices are zero
+for i in $(seq 0 6); do
+    if [ "$i" -ne "$TODAY_IDX23" ]; then
+        val=$(echo "$DAILY_COSTS23" | tr ',' '\n' | sed -n "$((i + 1))p")
+        if [ "$val" = "0.00" ] || [ "$val" = "0" ]; then
+            pass "DAILY_COSTS[$i] is zero (not today)"
+        else
+            fail "DAILY_COSTS[$i] should be zero, got '$val'"
+        fi
+    fi
+done
+
+# ============================================================
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ] || exit 1
